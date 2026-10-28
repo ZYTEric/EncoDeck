@@ -129,7 +129,7 @@ internal sealed class LeAudioSetPairing(ulong primary, ulong secondary, Action<s
                                 {
                                     // A completed custom pairing object can reject new event subscriptions
                                     // with E_ILLEGAL_METHOD_CALL. Refresh the same endpoint for each attempt.
-                                    var endpoint = await DeviceInformation.CreateFromIdAsync(id).AsTask(ct).ConfigureAwait(false);
+                                    var endpoint = await DeviceInformation.CreateFromIdAsync(id, [], DeviceInformationKind.AssociationEndpoint).AsTask(ct).ConfigureAwait(false);
                                     return await PairAsync(endpoint.Pairing, protection, ct, discoverMembers: false).ConfigureAwait(false);
                                 },
                                 level, log, ct).ConfigureAwait(false);
@@ -202,7 +202,7 @@ internal sealed class LeAudioSetPairing(ulong primary, ulong secondary, Action<s
     {
         for (int i = 0; i < 30; i++)
         {
-            var member = await DeviceInformation.CreateFromIdAsync(id).AsTask(ct).ConfigureAwait(false);
+            var member = await DeviceInformation.CreateFromIdAsync(id, [], DeviceInformationKind.AssociationEndpoint).AsTask(ct).ConfigureAwait(false);
             if (member.Pairing.IsPaired) return DevicePairingResultStatus.AlreadyPaired;
             await Task.Delay(TimeSpan.FromSeconds(1), ct).ConfigureAwait(false);
         }

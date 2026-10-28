@@ -619,7 +619,7 @@ public static class LeAudioPairing
                 if (status == DevicePairingResultStatus.Failed)
                 {
                     Log($"pair {new BluetoothAddress(address)} attempt {attempt}: encryption failed, trying Just Works");
-                    var retryEndpoint = await DeviceInformation.CreateFromIdAsync(device.DeviceInformation.Id)
+                    var retryEndpoint = await DeviceInformation.CreateFromIdAsync(device.DeviceInformation.Id, [], device.DeviceInformation.Kind)
                         .AsTask(attemptTimeout.Token).ConfigureAwait(false);
                     status = setPairing is null
                         ? await PairAsync(retryEndpoint.Pairing, DevicePairingProtectionLevel.None, attemptTimeout.Token).ConfigureAwait(false)
