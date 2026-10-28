@@ -84,12 +84,10 @@ internal sealed class LeAudioSetPairing(ulong primary, ulong secondary, Action<s
             // callback was counted only after member.Id: primary completion raced that gap.
             var callback = discovery.TryEnter();
             if (callback is null) return;
-            // This event has no deferral. Keep its native callback alive until member pairing
-            // completes, as in Microsoft's Bluetooth set-pairing sample. An application-only
-            // task barrier cannot extend Windows' set callback lifetime after this returns.
-            // Windows dispatches pairing handlers on worker threads; all awaits below use
-            // ConfigureAwait(false), and the enclosing attempt provides bounded cancellation.
-            ProcessMembersAsync(args, callback).GetAwaiter().GetResult();
+            // Start processing in the callback so a member request can start before it returns.
+            // Never block event dispatch on GetResult(); the lifetime barrier below awaits the
+            // asynchronous remainder, including any recursively discovered members.
+            _ = ProcessMembersAsync(args, callback);
         }
         async Task ProcessMembersAsync(DevicePairingSetMembersRequestedEventArgs args, IDisposable callback)
         {
