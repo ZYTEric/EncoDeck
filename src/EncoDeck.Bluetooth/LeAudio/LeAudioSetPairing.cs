@@ -124,6 +124,9 @@ internal sealed class LeAudioSetPairing(ulong primary, ulong secondary, Action<s
                         log($"SET expected peer admitted; alreadyPaired={alreadyPaired}");
                         stage = "pair-member";
                         var status = alreadyPaired ? DevicePairingResultStatus.AlreadyPaired
+                            // Use Windows' default protection for a protocol-discovered member.
+                            // On X3 an explicit Encryption requirement fails, leaving the native
+                            // request in progress when an immediate None fallback is submitted.
                             : await PairAsync(memberPairing, level, ct, discoverMembers: false).ConfigureAwait(false);
                         if (status == DevicePairingResultStatus.OperationAlreadyInProgress)
                             status = await WaitForMemberBondAsync(id, ct).ConfigureAwait(false);
@@ -150,9 +153,12 @@ internal sealed class LeAudioSetPairing(ulong primary, ulong secondary, Action<s
         {
             // Keep the ceremony handler registered across protection-level retries. Windows can
             // reject re-subscribing a completed custom pairing object with 0x8000000E.
-            var status = await PairMemberAsync(async protection =>
-                (await custom.PairAsync(DevicePairingKinds.ConfirmOnly, protection)
-                    .AsTask(ct).ConfigureAwait(false)).Status, level, log, ct).ConfigureAwait(false);
+            var status = discoverMembers
+                ? await PairMemberAsync(async protection =>
+                    (await custom.PairAsync(DevicePairingKinds.ConfirmOnly, protection)
+                        .AsTask(ct).ConfigureAwait(false)).Status, level, log, ct).ConfigureAwait(false)
+                : (await custom.PairAsync(DevicePairingKinds.ConfirmOnly).AsTask(ct).ConfigureAwait(false)).Status;
+            if (!discoverMembers) log($"SET member protection=WindowsDefault; result={status}");
             if (supported)
             {
                 log($"SET primary pairing returned {status}; waiting for discovery callback and member completion");
