@@ -19,9 +19,6 @@ internal sealed class LeAudioSetPairing(ulong primary, ulong secondary, Action<s
     private int _paired;
     private int _rejected;
     private long _pairedMember;
-    public string? DiscoveredMemberId { get; private set; }
-    public Task<ulong> ResolveDiscoveredAddressAsync() => DiscoveredMemberId is { } id
-        ? MemberAddressAsync(id) : Task.FromResult(0UL);
 
     /// <summary>Address of the set member this attempt bonded (its identity once bonded), or null.</summary>
     public ulong? PairedMember => Interlocked.Read(ref _pairedMember) is var a && a != 0 ? (ulong)a : null;
@@ -117,7 +114,6 @@ internal sealed class LeAudioSetPairing(ulong primary, ulong secondary, Action<s
                         }
                         log(kind == MemberKind.AdvertisedPeer ? "SET member is the advertised peer" : "SET member differs from the advertised peer address; accepted as discovered by the set protocol");
                         lock (_gate) { if (!_claimed.Add(id)) continue; }
-                        DiscoveredMemberId = id;
                         stage = "read-member-pairing";
                         var memberPairing = member.Pairing;
                         bool alreadyPaired = memberPairing.IsPaired;
@@ -126,7 +122,7 @@ internal sealed class LeAudioSetPairing(ulong primary, ulong secondary, Action<s
                         var status = alreadyPaired ? DevicePairingResultStatus.AlreadyPaired
                             : await PairAsync(memberPairing, level, ct, discoverMembers: false).ConfigureAwait(false);
                         if (status == DevicePairingResultStatus.OperationAlreadyInProgress)
-                            status = await WaitForMemberBondAsync(id, ct).ConfigureAwait(false);
+                            status = await LeAudioPairing.WaitForExistingPairingAsync(secondary, ct, log).ConfigureAwait(false);
                         if (status is DevicePairingResultStatus.Paired or DevicePairingResultStatus.AlreadyPaired)
                         {
                             Interlocked.Increment(ref _paired);
@@ -148,11 +144,8 @@ internal sealed class LeAudioSetPairing(ulong primary, ulong secondary, Action<s
         else if (discoverMembers) log("SET API unavailable; explicit LE address fallback remains enabled");
         try
         {
-            // Keep the ceremony handler registered across protection-level retries. Windows can
-            // reject re-subscribing a completed custom pairing object with 0x8000000E.
-            var status = await PairMemberAsync(async protection =>
-                (await custom.PairAsync(DevicePairingKinds.ConfirmOnly, protection)
-                    .AsTask(ct).ConfigureAwait(false)).Status, level, log, ct).ConfigureAwait(false);
+            var status = (await custom.PairAsync(DevicePairingKinds.ConfirmOnly, level)
+                .AsTask(ct).ConfigureAwait(false)).Status;
             if (supported)
             {
                 log($"SET primary pairing returned {status}; waiting for discovery callback and member completion");
@@ -173,35 +166,6 @@ internal sealed class LeAudioSetPairing(ulong primary, ulong secondary, Action<s
             custom.PairingRequested -= OnRequested;
             if (supported) custom.PairingSetMembersRequested -= OnMembers;
         }
-    }
-
-    // Retry the Windows-discovered endpoint itself. Reopening the scan-response hint as a
-    // public address can select a different transport/identity on X3.
-    internal static async Task<DevicePairingResultStatus> PairMemberAsync(
-        Func<DevicePairingProtectionLevel, Task<DevicePairingResultStatus>> pair,
-        DevicePairingProtectionLevel level, Action<string> log, CancellationToken ct)
-    {
-        ct.ThrowIfCancellationRequested();
-        var status = await pair(level).ConfigureAwait(false);
-        log($"SET member protection={level}; result={status}");
-        if (status == DevicePairingResultStatus.Failed && level != DevicePairingProtectionLevel.None)
-        {
-            ct.ThrowIfCancellationRequested();
-            status = await pair(DevicePairingProtectionLevel.None).ConfigureAwait(false);
-            log($"SET member protection=None; result={status}");
-        }
-        return status;
-    }
-
-    private static async Task<DevicePairingResultStatus> WaitForMemberBondAsync(string id, CancellationToken ct)
-    {
-        for (int i = 0; i < 30; i++)
-        {
-            var member = await DeviceInformation.CreateFromIdAsync(id, [], DeviceInformationKind.AssociationEndpoint).AsTask(ct).ConfigureAwait(false);
-            if (member.Pairing.IsPaired) return DevicePairingResultStatus.AlreadyPaired;
-            await Task.Delay(TimeSpan.FromSeconds(1), ct).ConfigureAwait(false);
-        }
-        throw new TimeoutException("The discovered LE set member's pairing is still unresolved; no address fallback was started.");
     }
 
     /// <summary>The bonded member's address; after bonding Windows reports the identity address, not the private one.</summary>
