@@ -125,7 +125,13 @@ internal sealed class LeAudioSetPairing(ulong primary, ulong secondary, Action<s
                         stage = "pair-member";
                         var status = alreadyPaired ? DevicePairingResultStatus.AlreadyPaired
                             : await PairMemberAsync(
-                                protection => PairAsync(memberPairing, protection, ct, discoverMembers: false),
+                                async protection =>
+                                {
+                                    // A completed custom pairing object can reject new event subscriptions
+                                    // with E_ILLEGAL_METHOD_CALL. Refresh the same endpoint for each attempt.
+                                    var endpoint = await DeviceInformation.CreateFromIdAsync(id).AsTask(ct).ConfigureAwait(false);
+                                    return await PairAsync(endpoint.Pairing, protection, ct, discoverMembers: false).ConfigureAwait(false);
+                                },
                                 level, log, ct).ConfigureAwait(false);
                         if (status == DevicePairingResultStatus.OperationAlreadyInProgress)
                             status = await WaitForMemberBondAsync(id, ct).ConfigureAwait(false);
