@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 using EncoDeck.Bluetooth.LeAudio;
+using Windows.Devices.Enumeration;
 
 namespace EncoDeck.Tests.Bluetooth;
 
@@ -7,6 +8,51 @@ public class LeAudioSetPairingTests
 {
     private const ulong Primary = 0x112233445566;
     private const ulong Secondary = 0x11223344A1B2;
+
+    [Fact]
+    public async Task FailedEncryptedMember_RetriesSameEndpointWithDefaultProtection()
+    {
+        var levels = new List<DevicePairingProtectionLevel>();
+        var result = await LeAudioSetPairing.PairMemberAsync(level =>
+        {
+            levels.Add(level);
+            return Task.FromResult(level == DevicePairingProtectionLevel.Encryption
+                ? DevicePairingResultStatus.Failed : DevicePairingResultStatus.Paired);
+        }, DevicePairingProtectionLevel.Encryption, _ => { }, TestContext.Current.CancellationToken);
+        Assert.Equal(DevicePairingResultStatus.Paired, result);
+        Assert.Equal([DevicePairingProtectionLevel.Encryption, DevicePairingProtectionLevel.None], levels);
+    }
+
+    [Theory]
+    [InlineData(DevicePairingResultStatus.Paired)]
+    [InlineData(DevicePairingResultStatus.AlreadyPaired)]
+    [InlineData(DevicePairingResultStatus.OperationAlreadyInProgress)]
+    [InlineData(DevicePairingResultStatus.AuthenticationFailure)]
+    public async Task CompletedOrUnresolvedMember_DoesNotSubmitFallback(DevicePairingResultStatus status)
+    {
+        int calls = 0;
+        var result = await LeAudioSetPairing.PairMemberAsync(_ =>
+        {
+            calls++;
+            return Task.FromResult(status);
+        }, DevicePairingProtectionLevel.Encryption, _ => { }, TestContext.Current.CancellationToken);
+        Assert.Equal(status, result);
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
+    public async Task CancelledAfterFailure_DoesNotStartAnotherPairing()
+    {
+        using var cancellation = new CancellationTokenSource();
+        int calls = 0;
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => LeAudioSetPairing.PairMemberAsync(_ =>
+        {
+            calls++;
+            cancellation.Cancel();
+            return Task.FromResult(DevicePairingResultStatus.Failed);
+        }, DevicePairingProtectionLevel.Encryption, _ => { }, cancellation.Token));
+        Assert.Equal(1, calls);
+    }
 
     [Fact]
     public void NativeVectorWithoutIterable_IsReadWithoutRequestingAnEnumerator()

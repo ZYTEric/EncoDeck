@@ -237,7 +237,8 @@ public static class LeAudioPairing
         var secondary = advert.Secondary.Value;
         // Set discovery may have bonded the other earbud under its LE identity, which is not always the
         // scan-response address (Enco X3); follow the bond that actually exists.
-        if (setPairing?.PairedMember is { } member && member != secondary)
+        var discoveredAddress = setPairing is null ? 0UL : await setPairing.ResolveDiscoveredAddressAsync().ConfigureAwait(false);
+        if ((setPairing?.PairedMember ?? discoveredAddress) is var member && member != 0 && member != secondary)
         {
             Log($"secondary bonded by set discovery at {new BluetoothAddress(member)} (advertised {new BluetoothAddress(secondary)})");
             secondary = member;
@@ -259,7 +260,7 @@ public static class LeAudioPairing
         else
         {
             Log($"Secondary not yet bonded; pairing secondary {new BluetoothAddress(secondary)} explicitly");
-            secondaryStatus = await PairLeAsync(secondary, cancellationToken, diagnosticLog: Log).ConfigureAwait(false);
+            secondaryStatus = await PairLeAsync(secondary, cancellationToken, diagnosticLog: Log, discoveredId: setPairing?.DiscoveredMemberId).ConfigureAwait(false);
             secondaryBonded = secondaryStatus is DevicePairingResultStatus.Paired or DevicePairingResultStatus.AlreadyPaired
                 && await IsLeBondedAsync(secondary, cancellationToken).ConfigureAwait(false);
             Log($"secondary status: {secondaryStatus} bonded={secondaryBonded}");
@@ -268,7 +269,7 @@ public static class LeAudioPairing
         {
             await Task.Delay(TimeSpan.FromSeconds(3), cancellationToken).ConfigureAwait(false);
             Log($"secondary retry {new BluetoothAddress(secondary)}");
-            secondaryStatus = await PairLeAsync(secondary, cancellationToken, diagnosticLog: Log).ConfigureAwait(false);
+            secondaryStatus = await PairLeAsync(secondary, cancellationToken, diagnosticLog: Log, discoveredId: setPairing?.DiscoveredMemberId).ConfigureAwait(false);
             secondaryBonded = secondaryStatus is DevicePairingResultStatus.Paired or DevicePairingResultStatus.AlreadyPaired
                 && await IsLeBondedAsync(secondary, cancellationToken).ConfigureAwait(false);
             Log($"secondary retry status: {secondaryStatus} bonded={secondaryBonded}");
@@ -586,7 +587,7 @@ public static class LeAudioPairing
     }
 
     /// <summary>The first attempt right after the advert turns connectable may fail, so retry a few times.</summary>
-    private static async Task<DevicePairingResultStatus> PairLeAsync(ulong address, CancellationToken cancellationToken, LeAudioSetPairing? setPairing = null, Action<string>? diagnosticLog = null)
+    private static async Task<DevicePairingResultStatus> PairLeAsync(ulong address, CancellationToken cancellationToken, LeAudioSetPairing? setPairing = null, Action<string>? diagnosticLog = null, string? discoveredId = null)
     {
         void Log(string message)
         {
@@ -597,7 +598,9 @@ public static class LeAudioPairing
         for (int attempt = 0; attempt < PairAttempts; attempt++)
         {
             if (attempt > 0) await Task.Delay(TimeSpan.FromSeconds(1.5), cancellationToken).ConfigureAwait(false);
-            using var device = await OpenLeAsync(address, cancellationToken).ConfigureAwait(false);
+            using var device = discoveredId is null
+                ? await OpenLeAsync(address, cancellationToken).ConfigureAwait(false)
+                : await BluetoothLEDevice.FromIdAsync(discoveredId).AsTask(cancellationToken).ConfigureAwait(false);
             if (device is null)
             {
                 Log($"pair {new BluetoothAddress(address)} attempt {attempt}: device null");
@@ -612,12 +615,14 @@ public static class LeAudioPairing
                 status = setPairing is null
                     ? await PairAsync(device.DeviceInformation.Pairing, DevicePairingProtectionLevel.Encryption, attemptTimeout.Token).ConfigureAwait(false)
                     : await setPairing.PairAsync(device.DeviceInformation.Pairing, DevicePairingProtectionLevel.Encryption, attemptTimeout.Token).ConfigureAwait(false);
+                Log($"pair {new BluetoothAddress(address)} attempt {attempt}: encryption result={status}");
                 if (status == DevicePairingResultStatus.Failed)
                 {
                     Log($"pair {new BluetoothAddress(address)} attempt {attempt}: encryption failed, trying Just Works");
                     status = setPairing is null
                         ? await PairAsync(device.DeviceInformation.Pairing, DevicePairingProtectionLevel.None, attemptTimeout.Token).ConfigureAwait(false)
                         : await setPairing.PairAsync(device.DeviceInformation.Pairing, DevicePairingProtectionLevel.None, attemptTimeout.Token).ConfigureAwait(false);
+                    Log($"pair {new BluetoothAddress(address)} attempt {attempt}: Just Works result={status}");
                 }
                 if (status == DevicePairingResultStatus.OperationAlreadyInProgress)
                     status = await WaitForExistingPairingAsync(address, attemptTimeout.Token, Log).ConfigureAwait(false);
