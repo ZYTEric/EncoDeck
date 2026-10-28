@@ -615,17 +615,6 @@ public static class LeAudioPairing
                 status = setPairing is null
                     ? await PairAsync(device.DeviceInformation.Pairing, DevicePairingProtectionLevel.Encryption, attemptTimeout.Token).ConfigureAwait(false)
                     : await setPairing.PairAsync(device.DeviceInformation.Pairing, DevicePairingProtectionLevel.Encryption, attemptTimeout.Token).ConfigureAwait(false);
-                Log($"pair {new BluetoothAddress(address)} attempt {attempt}: encryption result={status}");
-                if (status == DevicePairingResultStatus.Failed)
-                {
-                    Log($"pair {new BluetoothAddress(address)} attempt {attempt}: encryption failed, trying Just Works");
-                    var retryEndpoint = await DeviceInformation.CreateFromIdAsync(device.DeviceInformation.Id, [], device.DeviceInformation.Kind)
-                        .AsTask(attemptTimeout.Token).ConfigureAwait(false);
-                    status = setPairing is null
-                        ? await PairAsync(retryEndpoint.Pairing, DevicePairingProtectionLevel.None, attemptTimeout.Token).ConfigureAwait(false)
-                        : await setPairing.PairAsync(retryEndpoint.Pairing, DevicePairingProtectionLevel.None, attemptTimeout.Token).ConfigureAwait(false);
-                    Log($"pair {new BluetoothAddress(address)} attempt {attempt}: Just Works result={status}");
-                }
                 if (status == DevicePairingResultStatus.OperationAlreadyInProgress)
                     status = await WaitForExistingPairingAsync(address, attemptTimeout.Token, Log).ConfigureAwait(false);
             }
@@ -660,9 +649,9 @@ public static class LeAudioPairing
         pairing.Custom.PairingRequested += OnRequested;
         try
         {
-            var result = await pairing.Custom.PairAsync(DevicePairingKinds.ConfirmOnly | DevicePairingKinds.ConfirmPinMatch | DevicePairingKinds.DisplayPin, level)
-                .AsTask(cancellationToken).ConfigureAwait(false);
-            return result.Status;
+            return await LeAudioSetPairing.PairMemberAsync(async protection =>
+                (await pairing.Custom.PairAsync(DevicePairingKinds.ConfirmOnly | DevicePairingKinds.ConfirmPinMatch | DevicePairingKinds.DisplayPin, protection)
+                    .AsTask(cancellationToken).ConfigureAwait(false)).Status, level, Log, cancellationToken).ConfigureAwait(false);
         }
         finally
         {

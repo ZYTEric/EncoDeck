@@ -124,15 +124,7 @@ internal sealed class LeAudioSetPairing(ulong primary, ulong secondary, Action<s
                         log($"SET expected peer admitted; alreadyPaired={alreadyPaired}");
                         stage = "pair-member";
                         var status = alreadyPaired ? DevicePairingResultStatus.AlreadyPaired
-                            : await PairMemberAsync(
-                                async protection =>
-                                {
-                                    // A completed custom pairing object can reject new event subscriptions
-                                    // with E_ILLEGAL_METHOD_CALL. Refresh the same endpoint for each attempt.
-                                    var endpoint = await DeviceInformation.CreateFromIdAsync(id, [], DeviceInformationKind.AssociationEndpoint).AsTask(ct).ConfigureAwait(false);
-                                    return await PairAsync(endpoint.Pairing, protection, ct, discoverMembers: false).ConfigureAwait(false);
-                                },
-                                level, log, ct).ConfigureAwait(false);
+                            : await PairAsync(memberPairing, level, ct, discoverMembers: false).ConfigureAwait(false);
                         if (status == DevicePairingResultStatus.OperationAlreadyInProgress)
                             status = await WaitForMemberBondAsync(id, ct).ConfigureAwait(false);
                         if (status is DevicePairingResultStatus.Paired or DevicePairingResultStatus.AlreadyPaired)
@@ -156,8 +148,11 @@ internal sealed class LeAudioSetPairing(ulong primary, ulong secondary, Action<s
         else if (discoverMembers) log("SET API unavailable; explicit LE address fallback remains enabled");
         try
         {
-            var status = (await custom.PairAsync(DevicePairingKinds.ConfirmOnly, level)
-                .AsTask(ct).ConfigureAwait(false)).Status;
+            // Keep the ceremony handler registered across protection-level retries. Windows can
+            // reject re-subscribing a completed custom pairing object with 0x8000000E.
+            var status = await PairMemberAsync(async protection =>
+                (await custom.PairAsync(DevicePairingKinds.ConfirmOnly, protection)
+                    .AsTask(ct).ConfigureAwait(false)).Status, level, log, ct).ConfigureAwait(false);
             if (supported)
             {
                 log($"SET primary pairing returned {status}; waiting for discovery callback and member completion");
