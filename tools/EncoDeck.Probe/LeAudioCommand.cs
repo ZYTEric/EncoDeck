@@ -16,6 +16,21 @@ namespace EncoDeck.Probe;
 /// <summary>Targeted, bounded LE reconnect test. Pairing is opt-in; the default preserves all bonds/settings.</summary>
 internal static class LeAudioCommand
 {
+    public static async Task<int> ResetAsync(ProbeOptions options, CancellationToken ct)
+    {
+        if (!options.Has("confirm-write"))
+        {
+            Console.Error.WriteLine("Removing this PC's pairings requires --confirm-write.");
+            return 2;
+        }
+        var device = await DeviceSelector.SelectAsync(new BluetoothDeviceCatalog(), options, ct);
+        if (device is null) return 3;
+        var result = await LeAudioPairing.RemoveLeAudioAsync(device.Address.Value,
+            new Stages(Console.WriteLine), ct);
+        Console.WriteLine($"Reset result: {result.Outcome}; {result.Detail}");
+        return result.Outcome == LeAudioPairingOutcome.Removed ? 0 : 5;
+    }
+
     public static async Task<int> RunAsync(ProbeOptions options, CancellationToken ct)
     {
         var device = await DeviceSelector.SelectAsync(new BluetoothDeviceCatalog(), options, ct);

@@ -34,6 +34,7 @@ internal static class ProbeApp
                 "le-br-switch" => await WriteCommands.SetLeBrSwitchAsync(options, ct),
                 "monitor" => await MonitorCommand.RunAsync(options, ct),
                 "le-audio" => await LeAudioCommand.RunAsync(options, ct),
+                "le-audio-reset" => await LeAudioCommand.ResetAsync(options, ct),
                 "multipoint-off" => await LeAudioCommand.DisableMultipointCommandAsync(options, ct),
                 "render-model" => await RenderModelCommand.RunAsync(options, ct),
                 "bridge" => await BridgeCommand.RunAsync(options, ct),
@@ -83,6 +84,7 @@ internal static class ProbeApp
                   [--payload HEX]         Commands outside 0x01xx are refused.
 
             Write commands (change device settings; require --confirm-write):
+              le-audio-reset --device <name>  Remove this PC's Classic/LE pairings using guarded endpoint restoration.
               multipoint-off              Disable device multipoint and confirm by fresh read-back.
               set-anc --index N[,N..]     Select noise-control protocol index(es), read back after
                       [--dwell-ms 6000]   each write, then restore the original mode
